@@ -107,16 +107,16 @@ for backend in (Symbol(), :_direct, :_im2col)
     # First make auto-allocating versions of the basic pooling calls:
     for name in (:maxpool, :meanpool)
         @eval begin
-            @timeit_debug to function $(Symbol("$(name)$(backend)"))(
+            function $(Symbol("$(name)$(backend)"))(
                             x::AbstractArray{xT,N},
                             pdims::PoolDims; kwargs...) where {xT, N}
                 y = similar(x, output_size(pdims)..., channels_out(pdims), size(x, N))
                 fill!(y, xT(0))
                 return $(Symbol("$(name)$(backend)!"))(y, x, pdims; kwargs...)
             end
-            
+
             # Backprops too
-            @timeit_debug to function $(Symbol("∇$(name)$(backend)"))(
+            function $(Symbol("∇$(name)$(backend)"))(
                             dy::AbstractArray{T,N}, y::AbstractArray{T,N},
                             x::AbstractArray{T,N}, pdims::PoolDims;
                             kwargs...) where {T, N}
@@ -135,4 +135,21 @@ if is_nnpack_available()
         func = check_supported_operation(x, pdims) ? maxpool_nnpack : maxpool_direct
         return func(x, pdims; kwargs...)
     end
+end
+
+expand(N, i::Tuple) = i
+expand(N, i::Integer) = ntuple(_ -> i, N)
+
+function maxpool(x, k::NTuple{N, Integer}; pad = 0, stride = k) where N
+    pad = expand(Val(N), pad)
+    stride = expand(Val(N), stride)
+    pdims = PoolDims(x, k; padding = pad, stride = stride)
+    return maxpool(x, pdims)
+end
+
+function meanpool(x, k::NTuple{N, Integer}; pad = 0, stride = k) where N
+    pad = expand(Val(N), pad)
+    stride = expand(Val(N), stride)
+    pdims = PoolDims(x, k; padding = pad, stride = stride)
+    return meanpool(x, pdims)
 end

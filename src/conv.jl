@@ -1,4 +1,6 @@
-export conv, conv!, ∇conv_data, ∇conv_data!, ∇conv_filter, ∇conv_filter!
+export conv, conv!, ∇conv_data, ∇conv_data!, ∇conv_filter, ∇conv_filter!, depthwiseconv,
+        depthwiseconv!, ∇depthwiseconv_data, ∇depthwiseconv_data!, ∇depthwiseconv_filter,
+        ∇depthwiseconv_filter!
 
 ## Convolution API
 #
@@ -45,7 +47,7 @@ for (front_name, backend) in (
     # We only define 3d conv primitives, we reshape lower down to get 1d and 2d convolution
     @eval begin
         # im2col-accelerated function forwarding definition
-        @timeit_debug to function $(Symbol("$(front_name)!"))(
+        function $(Symbol("$(front_name)!"))(
                         out::AbstractArray{T,5}, in1::AbstractArray{T,5},
                         in2::AbstractArray{T,5}, cdims::ConvDims; kwargs...) where {T <: $G}
             $(Symbol("$(front_name)_$(backend)!"))(out, in1, in2, cdims; kwargs...)
@@ -106,7 +108,7 @@ for backend in (Symbol(), :_direct, :_im2col)
     # First make auto-allocating versions of the conv()-like calls:
     for name in (:conv, :depthwiseconv)
         @eval begin
-            @timeit_debug to function $(Symbol("$(name)$(backend)"))(
+            function $(Symbol("$(name)$(backend)"))(
                             x::AbstractArray{xT,N}, w::AbstractArray{wT,N},
                             cdims::ConvDims; kwargs...) where {xT, wT, N}
                 y = similar(x, promote_type(xT, wT), output_size(cdims)...,
@@ -118,7 +120,7 @@ for backend in (Symbol(), :_direct, :_im2col)
 
     for name in (:∇conv_data, :∇depthwiseconv_data)
         @eval begin
-            @timeit_debug to function $(Symbol("$(name)$(backend)"))(
+            function $(Symbol("$(name)$(backend)"))(
                             dy::AbstractArray{yT,N}, w::AbstractArray{wT,N},
                             cdims::ConvDims; kwargs...) where {yT, wT, N}
                 dx = similar(dy, input_size(cdims)..., channels_in(cdims),
@@ -131,7 +133,7 @@ for backend in (Symbol(), :_direct, :_im2col)
     # We do the conv/depthwiseconv filter backprops separately, as the shape calculation
     # for `w` is slightly different for depthwise than for normal dense convolution.
     @eval begin
-        @timeit_debug to function $(Symbol("∇conv_filter$(backend)"))(
+        function $(Symbol("∇conv_filter$(backend)"))(
                         x::AbstractArray{xT,N}, dy::AbstractArray{yT,N},
                         cdims::ConvDims; kwargs...) where {xT, yT, N}
             dw = similar(dy, kernel_size(cdims)..., channels_in(cdims),
@@ -141,7 +143,7 @@ for backend in (Symbol(), :_direct, :_im2col)
     end
 
     @eval begin
-        @timeit_debug to function $(Symbol("∇depthwiseconv_filter$(backend)"))(
+        function $(Symbol("∇depthwiseconv_filter$(backend)"))(
                         x::AbstractArray{xT,N}, dy::AbstractArray{yT,N},
                         cdims::ConvDims; kwargs...) where {xT, yT, N}
             dw = similar(dy, kernel_size(cdims)..., channel_multiplier(cdims),
@@ -160,4 +162,20 @@ if is_nnpack_available()
                   kwargs...) where {xT, wT, K, C_in, C_out, S, P, F}
         return conv_nnpack(x, w, cdims; kwargs...)
     end
+end
+
+function conv(x, w::AbstractArray{T, N}; stride = 1, pad = 0, dilation = 1, flipped = false) where {T, N}
+    stride = expand(Val(N-2), stride)
+    pad = expand(Val(N-2), pad)
+    dilation = expand(Val(N-2), dilation)
+    cdims = DenseConvDims(x, w; stride = stride, padding = pad, dilation = dilation, flipkernel = flipped)
+    return conv(x, w, cdims)
+end
+
+function depthwiseconv(x, w::AbstractArray{T, N}; stride = 1, pad = 0, dilation = 1, flipped = false) where {T, N}
+    stride = expand(Val(N-2), stride)
+    pad = expand(Val(N-2), pad)
+    dilation = expand(Val(N-2), dilation)
+    cdims = DepthwiseConvDims(x, w; stride = stride, padding = pad, dilation = dilation, flipkernel = flipped)
+    return depthwiseconv(x, w, cdims)
 end
